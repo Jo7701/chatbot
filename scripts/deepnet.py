@@ -22,15 +22,23 @@ def grab_data():
 
 	return parent, reply
 
+print("Loading Data")
 parent, reply = grab_data()
 
+print("Creating frequency dictionaries")
 parent_freq_dict = Counter(word.lower() for comment in parent for word in comment)
 reply_freq_dict = Counter(word.lower() for comment in reply for word in comment)
 
+print("Creating vocabularies")
 parent_vocab = {word for word in parent_freq_dict if parent_freq_dict[word] > 5} | {"PAD", "UNK"}
 reply_vocab = {word for word in reply_freq_dict if reply_freq_dict[word] > 5} | {"SOS", "EOS", "PAD", "UNK"}
 
-print("Orig Parent Vocab Size:", len(parent_freq_dict))
-print("New Parent Vocab Size:", len(parent_vocab))
-print("Orig Reply Vocab Size:", len(reply_freq_dict))
-print("New Reply Vocab Size:", len(reply_vocab))
+max_enc_time = max(parent, key = len)
+max_dec_time = max(reply, key = len)
+
+enc_features = len(parent_vocab)
+dec_features = len(reply_vocab)
+
+print("Creating mapping dictionaries")
+parent_w2i, reply_w2i = {word:index for index,word in enumerate(parent_vocab)}, {word:index for index, word in enumerate(reply_vocab)}
+parent_i2w, reply_i2w = {integer:word for word,integer in parent_w2i.items()}, {integer:word for word,integer in reply_w2i.items()}
