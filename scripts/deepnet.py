@@ -6,13 +6,19 @@ def grab_data():
 
 	parent = [1] * len(unordered_parent)
 	reply = [1] * len(unordered_parent)
-
+	
 	for i in tqdm.tqdm(range(len(parent))):
 		parent_comment = unordered_parent[i][:-1].split(" ")
 		reply_comment = unordered_reply[i][:-1].split(" ")
 		
 		parent[int(parent_comment[0])] = parent_comment[1:]
 		reply[int(reply_comment[0])] = reply_comment[1:]
+	
+	blacklist = sorted({i for i in range(len(parent)) if parent[i] == 1 or len(parent[i]) == 0}|{i for i in range(len(reply)) if reply[i] == 1 or len(reply[i]) == 0}, reverse = True)
+	for idx in blacklist:
+		del(parent[idx])
+		del(reply[idx])
+
 	return parent, reply
 
 parent, reply = grab_data()
@@ -23,11 +29,7 @@ print("Creating Parent Reply Vocab")
 
 parent_vocab = set()
 for i, comment in enumerate(parent):
-	try:	
-		for word in comment:
-			parent_vocab.add(word)
-	except:
-		print(comment)
-		print("INDEX:", i)
-		exit()
-print(len(parent_vocab))
+	for word in comment:
+		parent_vocab.add(word)
+
+print("Length of Vocab:", len(parent_vocab))
