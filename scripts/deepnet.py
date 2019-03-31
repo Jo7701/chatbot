@@ -4,6 +4,7 @@ import tensorflow as tf
 from tensorflow.python.layers.core import Dense
 import numpy as np
 import argparse
+import os
 import _pickle as pickle
 from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
 
@@ -30,20 +31,21 @@ def grab_data(num_samples):
 	return parent[:num_samples], reply[:num_samples]
 
 def one_hot(vec, num_features):
-    toRet = np.zeros((vec.shape[0], vec.shape[1], num_features), dtype = np.int32)
-    for i in range(len(vec)):
-        toRet[i, np.arange(len(vec[i])), vec[i]] = 1
-    return toRet
+	# print({(len(vec[i]), i) for i in range(len(vec))})
+	toRet = np.zeros((vec.shape[0], vec.shape[1], num_features), dtype = np.int32)
+	for i in range(len(vec)):
+	    toRet[i, np.arange(len(vec[i])), vec[i]] = 1
+	return toRet
 
 def pad(vec, pad_token, size):
     return np.array([i+[pad_token]*(size-len(i)) for i in vec])
 
-def load_data(parent, reply, lower, upper):
-    parent, reply = parent[lower:upper], reply[lower:upper]
-    enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
-    dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
-    dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
-    return enc_input, dec_input, dec_target
+def load_data(parent_data, reply_data, lower, upper):
+	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
+	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
+	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
+	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
+	return enc_input, dec_input, dec_target
 
 def get_args():
 	parser = argparse.ArgumentParser(description = "Reddit Chatbot")
@@ -79,7 +81,7 @@ parent_vocab = {word for word in parent_freq_dict if parent_freq_dict[word] > 3}
 reply_vocab = {word for word in reply_freq_dict if reply_freq_dict[word] > 3} | {"SOS", "EOS", "PAD", "UNK"}
 
 max_enc_time = len(max(parent, key = len))
-max_dec_time = len(max(reply, key = len))
+max_dec_time = len(max(reply, key = len)) + 1 #plus one due to SOS/EOS token
 
 enc_features = len(parent_vocab)
 dec_features = len(reply_vocab)
@@ -159,22 +161,25 @@ def construct_graph(mode, placeholders, batch_size):
     return outputs, loss, optimizer
 
 def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
-    enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
-    for epoch in range(epochs):
-        i = 0
-        cost = 0
-        for i in tqdm.tqdm(range(0,num_samples, batch_size)):
-            start, end = i, i+batch_size
-            epoch_enc_input, epoch_dec_input, epoch_dec_target = load_data(parent, reply, start, end)
-            epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
-            _, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
-                dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
-            cost += c
-        if not epoch%10:
-            train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
-        print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
-    # train_saver.save(train_sess, "beam_train/beam_model")
-    pickle.dump([eng_w2i, spa_w2i, max_enc_time], open("beam_infer/params.pickle", 'wb'))
+	enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
+	for epoch in range(epochs):
+		i = 0
+		cost = 0
+		for i in tqdm.tqdm(range(0,num_samples, batch_size)):
+			start, end = i, i+batch_size
+			epoch_enc_input, epoch_dec_input, epoch_dec_target = load_data(parent, reply, start, end)
+			epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
+			_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
+			    dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
+			cost += c
+		# if not epoch%10:
+		# 	if not os.path.exists('../beam_train'):
+		# 		os.makedirs("../beam_train")
+		# 	os.makedirs("../beam_train/model"+str(round(cost,2)))
+		# 	train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
+		print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
+	# train_saver.save(train_sess, "beam_train/beam_model")
+	# pickle.dump([eng_w2i, spa_w2i, max_enc_time], open("beam_infer/params.pickle", 'wb'))
 
 tf.reset_default_graph()
 train_graph = tf.Graph()
