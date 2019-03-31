@@ -7,6 +7,8 @@ import argparse
 import os
 import _pickle as pickle
 from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
+import process
+import spacy
 
 
 def grab_data(num_samples):
@@ -77,8 +79,8 @@ parent_freq_dict = Counter(word.lower() for comment in parent for word in commen
 reply_freq_dict = Counter(word.lower() for comment in reply for word in comment)
 
 print("Creating vocabularies")
-parent_vocab = {word for word in parent_freq_dict if parent_freq_dict[word] > 3} | {"PAD", "UNK"}
-reply_vocab = {word for word in reply_freq_dict if reply_freq_dict[word] > 3} | {"SOS", "EOS", "PAD", "UNK"}
+parent_vocab = {word for word in parent_freq_dict if parent_freq_dict[word] > 10} | {"PAD", "UNK"}
+reply_vocab = {word for word in reply_freq_dict if reply_freq_dict[word] > 10} | {"SOS", "EOS", "PAD", "UNK"}
 
 max_enc_time = len(max(parent, key = len))
 max_dec_time = len(max(reply, key = len)) + 1 #plus one due to SOS/EOS token
@@ -154,7 +156,7 @@ def construct_graph(mode, placeholders, batch_size):
         outputs = outputs.rnn_output
 
         loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels = dec_target, logits = outputs))
-        optimizer = tf.train.AdamOptimizer(learning_rate = 0.0005).minimize(loss)
+        optimizer = tf.train.AdamOptimizer(learning_rate = 0.001).minimize(loss)
     else:
         outputs = tf.transpose(outputs.predicted_ids, [0,2,1], name = 'inf_output')
 
@@ -178,8 +180,8 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 		# 	os.makedirs("../beam_train/model"+str(round(cost,2)))
 		# 	train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
 		print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
-	# train_saver.save(train_sess, "beam_train/beam_model")
-	# pickle.dump([eng_w2i, spa_w2i, max_enc_time], open("beam_infer/params.pickle", 'wb'))
+	train_saver.save(train_sess, "beam_train/beam_model")
+	pickle.dump([parent_w2i, reply_w2i, max_enc_time], open("beam_infer/params.pickle", 'wb'))
 
 tf.reset_default_graph()
 train_graph = tf.Graph()
@@ -202,23 +204,22 @@ infer_sess = tf.Session(graph = infer_graph)
 train_sess.run(initializer)
 train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
 
-# infer_saver.restore(infer_sess, 'beam_train/beam_model')
-# infer_saver.save(infer_sess, "beam_infer/beam_model")
-#
-# with infer_graph.as_default():
-#     while True:
-#         try:
-#             enc_input = infer_graph.get_tensor_by_name("enc_input:0")
-#             enc_seq_len = infer_graph.get_tensor_by_name("enc_seq_len:0")
-#
-#             inp = input("Enter a sentence:")
-#             if inp == "quit()":
-#                 break
-#             inp = [[eng_w2i[i.lower()] for i in clean_split(inp.lower())]]
-#             inp = pad(inp, eng_w2i["PAD"], max_enc_time).reshape((1,-1))
-#             input_seq = np.concatenate([inp, inp])
-#             out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([max_enc_time]*2)})[0][0]
-#             print([" ".join([spa_i2w[idx] for idx in sentence]) for sentence in out])
-#             print("\n\n\n")
-#         except Exception as e:
-#             print
+infer_saver.restore(infer_sess, 'beam_train/beam_model')
+infer_saver.save(infer_sess, "beam_infer/beam_model")
+
+with infer_graph.as_default():
+	while True:
+		enc_input = infer_graph.get_tensor_by_name("enc_input:0")
+		enc_seq_len = infer_graph.get_tensor_by_name("enc_seq_len:0")
+
+		inp = input("Enter a sentence:")
+		if inp == "quit()":
+			break
+		nlp = spacy.load('en')
+		inp = process.tokenize(inp, nlp)
+		inp = [[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in inp]]
+		inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
+		input_seq = np.concatenate([inp, inp])
+		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([max_enc_time]*2)})[0][0]
+		print([" ".join([reply_i2w[idx] for idx in sentence]) for sentence in out])
+		print("\n\n\n")
