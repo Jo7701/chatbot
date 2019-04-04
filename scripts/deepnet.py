@@ -44,10 +44,12 @@ def pad(vec, pad_token, size):
 
 def load_data(parent_data, reply_data, lower, upper):
 	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
+        enc_seq_len = [len(comment) for comment in parent)
+        dec_seq_len = [len(comment) + 1 for comment in reply]
 	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
 	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
 	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
-	return enc_input, dec_input, dec_target
+	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
 	parser = argparse.ArgumentParser(description = "Reddit Chatbot")
@@ -169,8 +171,8 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 		cost = 0
 		for i in tqdm.tqdm(range(0,num_samples, batch_size)):
 			start, end = i, i+batch_size
-			epoch_enc_input, epoch_dec_input, epoch_dec_target = load_data(parent, reply, start, end)
-			epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
+			epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
+			#epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
 			_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
 			    dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
 			cost += c
