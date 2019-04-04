@@ -35,13 +35,16 @@ def clean_comment(comment):
     comment = clean_url(comment)
     return comment
 
-def tokenize(comment, nlp):
+def tokenize(comment, nlp, comment_type):
     comment = clean_comment(comment)
     doc = nlp(comment)
     toRet = []
     for token in doc:
-        if not token.is_space and token.lemma_ != '-PRON-':
-            toRet.append(token.lemma_)
-        elif token.lemma_ == '-PRON-':
+        if comment_type == 'p':
+            if not token.is_space and token.lemma_ != '-PRON-':
+                toRet.append(token.lemma_)
+            elif token.lemma_ == '-PRON-':
+                toRet.append(token.text)
+        else:
             toRet.append(token.text)
     return toRet

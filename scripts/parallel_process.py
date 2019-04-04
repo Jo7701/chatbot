@@ -35,7 +35,7 @@ def process_file(filename):
     for comment in open(filename, 'r'):
         if index % 10000 == 0:
             print("Processed", index, "comments from", filename)
-        toRet.append(process.tokenize(comment, nlp))
+        toRet.append(process.tokenize(comment, nlp, filename[14]))
         index += 1
     return toRet
 
