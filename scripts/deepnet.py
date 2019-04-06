@@ -15,11 +15,11 @@ def grab_data(num_samples):
 	for i,comment in enumerate(open('../processed_data/processed_parent.txt', 'r')):
 		if i == num_samples:
 			break
-		parent.append(comment[:-1].split())
+		parent.append(comment[:-1].lower().split())
 	for i,comment in enumerate(open('../processed_data/processed_reply.txt', 'r')):
 		if i == num_samples:
 			break
-		reply.append(comment[:-1].split())
+		reply.append(comment[:-1].lower().split())
 	return parent,reply
 
 def one_hot(vec, num_features):
@@ -68,21 +68,21 @@ print("Loading Data")
 parent, reply = grab_data(num_samples)
 
 print("Creating frequency dictionaries")
-parent_freq_dict = Counter(word.lower() for comment in parent for word in comment)
-reply_freq_dict = Counter(word.lower() for comment in reply for word in comment)
+parent_freq_dict = Counter(word for comment in parent for word in comment)
+reply_freq_dict = Counter(word for comment in reply for word in comment)
 
 print("Creating vocabularies")
 enc_features = min(30000, len(parent_freq_dict))
-dec_features = min(30000, len(parent_freq_dict))
+dec_features = min(30000, len(reply_freq_dict))
 
 parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_features-1)]
-reply_vocab = ["SOS", "PAD"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
+reply_vocab = ["PAD", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
 
 max_enc_time = 50
 max_dec_time = 50
 
 print("Creating mapping dictionaries")
-parent_w2i, reply_w2i = {parent_vocab[idx-1]:idx for idx in range(1, len(parent_vocab)+1)}, {reply_vocab[idx-1]:idx for idx in range(1, len(reply_vocab)+1)}
+parent_w2i, reply_w2i = {word:i for i,word in enumerate(parent_vocab)}, {word:i for i,word in enumerate(reply_vocab)}
 parent_i2w, reply_i2w = {integer:word for word,integer in parent_w2i.items()}, {integer:word for word,integer in reply_w2i.items()}
 
 def get_placeholders():
@@ -218,5 +218,5 @@ with infer_graph.as_default():
 		# inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
 		input_seq = np.concatenate([inp, inp])
 		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
-		print([" ".join([reply_i2w[idx] for idx in sentence]) for sentence in out])
+		print([" ".join([reply_i2w[idx] for idx in sentence if reply_i2w[idx] != "EOS"]) for sentence in out])
 		print("\n\n\n")
