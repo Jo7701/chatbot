@@ -10,37 +10,16 @@ from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
 import process
 import spacy
 
-
-# def grab_data(num_samples):
-# 	unordered_parent = open('../processed_data/processed_parent.txt', 'r', encoding = 'ISO-8859-1').readlines()
-# 	unordered_reply = open('../processed_data/processed_reply.txt', 'r', encoding = 'ISO-8859-1').readlines()
-#
-# 	parent = [1] * len(unordered_parent)
-# 	reply = [1] * len(unordered_parent)
-#
-# 	for i in tqdm.tqdm(range(len(parent))):
-# 		parent_comment = unordered_parent[i][:-1].split(" ")
-# 		reply_comment = unordered_reply[i][:-1].split(" ")
-#
-# 		parent[int(parent_comment[0])] = parent_comment[1:]
-# 		reply[int(reply_comment[0])] = reply_comment[1:]
-#
-# 	blacklist = sorted({i for i in range(len(parent)) if parent[i] == 1 or len(parent[i]) == 0}|{i for i in range(len(reply)) if reply[i] == 1 or len(reply[i]) == 0}, reverse = True)
-# 	for idx in blacklist:
-# 		del(parent[idx])
-# 		del(reply[idx])
-#
-# 	return parent[:num_samples], reply[:num_samples]
 def grab_data(num_samples):
 	parent, reply = [], []
-	for i,comment in enumerate(open('../../processed_parent.txt', 'r')):
+	for i,comment in enumerate(open('../processed_data/processed_parent.txt', 'r')):
 		if i == num_samples:
 			break
-		parent.append(comment.split())
-	for i,comment in enumerate(open('../../processed_reply.txt', 'r')):
+		parent.append(comment[:-1].split())
+	for i,comment in enumerate(open('../processed_data/processed_reply.txt', 'r')):
 		if i == num_samples:
 			break
-		reply.append(comment.split())
+		reply.append(comment[:-1].split())
 	return parent,reply
 
 def one_hot(vec, num_features):
@@ -97,7 +76,7 @@ enc_features = min(30000, len(parent_freq_dict))
 dec_features = min(30000, len(parent_freq_dict))
 
 parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_features-1)]
-reply_vocab = ["SOS", "EOS", "PAD"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)]
+reply_vocab = ["SOS", "PAD"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
 
 max_enc_time = 50
 max_dec_time = 50
