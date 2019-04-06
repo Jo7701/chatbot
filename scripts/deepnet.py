@@ -11,44 +11,56 @@ import process
 import spacy
 
 
+# def grab_data(num_samples):
+# 	unordered_parent = open('../processed_data/processed_parent.txt', 'r', encoding = 'ISO-8859-1').readlines()
+# 	unordered_reply = open('../processed_data/processed_reply.txt', 'r', encoding = 'ISO-8859-1').readlines()
+#
+# 	parent = [1] * len(unordered_parent)
+# 	reply = [1] * len(unordered_parent)
+#
+# 	for i in tqdm.tqdm(range(len(parent))):
+# 		parent_comment = unordered_parent[i][:-1].split(" ")
+# 		reply_comment = unordered_reply[i][:-1].split(" ")
+#
+# 		parent[int(parent_comment[0])] = parent_comment[1:]
+# 		reply[int(reply_comment[0])] = reply_comment[1:]
+#
+# 	blacklist = sorted({i for i in range(len(parent)) if parent[i] == 1 or len(parent[i]) == 0}|{i for i in range(len(reply)) if reply[i] == 1 or len(reply[i]) == 0}, reverse = True)
+# 	for idx in blacklist:
+# 		del(parent[idx])
+# 		del(reply[idx])
+#
+# 	return parent[:num_samples], reply[:num_samples]
 def grab_data(num_samples):
-	unordered_parent = open('../processed_data/processed_parent.txt', 'r', encoding = 'ISO-8859-1').readlines()
-	unordered_reply = open('../processed_data/processed_reply.txt', 'r', encoding = 'ISO-8859-1').readlines()
-
-	parent = [1] * len(unordered_parent)
-	reply = [1] * len(unordered_parent)
-
-	for i in tqdm.tqdm(range(len(parent))):
-		parent_comment = unordered_parent[i][:-1].split(" ")
-		reply_comment = unordered_reply[i][:-1].split(" ")
-
-		parent[int(parent_comment[0])] = parent_comment[1:]
-		reply[int(reply_comment[0])] = reply_comment[1:]
-
-	blacklist = sorted({i for i in range(len(parent)) if parent[i] == 1 or len(parent[i]) == 0}|{i for i in range(len(reply)) if reply[i] == 1 or len(reply[i]) == 0}, reverse = True)
-	for idx in blacklist:
-		del(parent[idx])
-		del(reply[idx])
-
-	return parent[:num_samples], reply[:num_samples]
+	parent, reply = [], []
+	for i,comment in enumerate(open('../../processed_parent.txt', 'r')):
+		if i == num_samples:
+			break
+		parent.append(comment.split())
+	for i,comment in enumerate(open('../../processed_reply.txt', 'r')):
+		if i == num_samples:
+			break
+		reply.append(comment.split())
+	return parent,reply
 
 def one_hot(vec, num_features):
-	# print({(len(vec[i]), i) for i in range(len(vec))})
 	toRet = np.zeros((vec.shape[0], vec.shape[1], num_features), dtype = np.int32)
 	for i in range(len(vec)):
 	    toRet[i, np.arange(len(vec[i])), vec[i]] = 1
 	return toRet
 
 def pad(vec, pad_token, size):
-    return np.array([i+[pad_token]*(size-len(i)) for i in vec])
+	return np.array([i+[pad_token]*(size-len(i)) for i in vec])
 
 def load_data(parent_data, reply_data, lower, upper):
 	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
-        enc_seq_len = [len(comment) for comment in parent)
-        dec_seq_len = [len(comment) + 1 for comment in reply]
-	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
-	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
-	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
+	enc_seq_len = [min(max_enc_time, len(comment)) for comment in parent]
+	dec_seq_len = [min(max_dec_time, len(comment)) for comment in reply]
+	max_enc_pad = max(enc_seq_len)
+	max_dec_pad = max(dec_seq_len)
+	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in comment[:max_enc_pad]] for comment in parent], parent_w2i["PAD"], max_enc_pad)
+	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment[:max_dec_pad-1]] for comment in reply], reply_w2i["PAD"], max_dec_pad)
+	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment[:max_dec_pad-1]]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_pad), dec_features)
 	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
@@ -81,23 +93,23 @@ parent_freq_dict = Counter(word.lower() for comment in parent for word in commen
 reply_freq_dict = Counter(word.lower() for comment in reply for word in comment)
 
 print("Creating vocabularies")
-parent_vocab = {word for word in parent_freq_dict if parent_freq_dict[word] > 10} | {"PAD", "UNK"}
-reply_vocab = {word for word in reply_freq_dict if reply_freq_dict[word] > 10} | {"SOS", "EOS", "PAD", "UNK"}
+enc_features = min(30000, len(parent_freq_dict))
+dec_features = min(30000, len(parent_freq_dict))
 
-max_enc_time = len(max(parent, key = len))
-max_dec_time = len(max(reply, key = len)) + 1 #plus one due to SOS/EOS token
+parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_features-1)]
+reply_vocab = ["SOS", "EOS", "PAD"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)]
 
-enc_features = len(parent_vocab)
-dec_features = len(reply_vocab)
+max_enc_time = 50
+max_dec_time = 50
 
 print("Creating mapping dictionaries")
-parent_w2i, reply_w2i = {word:index for index,word in enumerate(parent_vocab)}, {word:index for index, word in enumerate(reply_vocab)}
+parent_w2i, reply_w2i = {parent_vocab[idx-1]:idx for idx in range(1, len(parent_vocab)+1)}, {reply_vocab[idx-1]:idx for idx in range(1, len(reply_vocab)+1)}
 parent_i2w, reply_i2w = {integer:word for word,integer in parent_w2i.items()}, {integer:word for word,integer in reply_w2i.items()}
 
 def get_placeholders():
-        enc_input = tf.placeholder(shape = [None, max_enc_time], dtype = tf.int32, name = 'enc_input')
+        enc_input = tf.placeholder(shape = [None, None], dtype = tf.int32, name = 'enc_input')
         enc_seq_len = tf.placeholder(shape = [None], dtype = tf.int32, name = 'enc_seq_len')
-        dec_input = tf.placeholder(shape = [None, max_dec_time], dtype = tf.int32, name = 'dec_input')
+        dec_input = tf.placeholder(shape = [None, None], dtype = tf.int32, name = 'dec_input')
         dec_seq_len = tf.placeholder(shape = [None], dtype = tf.int32, name = 'dec_seq_len')
         dec_target = tf.placeholder(shape = [None, None, dec_features], dtype = tf.int32, name = 'dec_target')
 
@@ -125,7 +137,7 @@ def Decoder(mode, dec_emb_input, enc_seq_len, dec_seq_len, attention_states, fin
             helper = tf.contrib.seq2seq.TrainingHelper(dec_emb_input, dec_seq_len, name = 'helper')
             decoder = tf.contrib.seq2seq.BasicDecoder(attention_cell, helper, init_dec_state, projection_layer)
         else:
-            start_tokens = tf.tile(np.array([reply_w2i["EOS"]], dtype = np.int32), [batch_size])
+            start_tokens = tf.tile(np.array([reply_w2i["SOS"]], dtype = np.int32), [batch_size])
             end_token = reply_w2i["EOS"]
             decoder = tf.contrib.seq2seq.BeamSearchDecoder(attention_cell, dec_emb_matrix, start_tokens, end_token, init_dec_state, beam_width, projection_layer)
 
@@ -134,35 +146,35 @@ def Decoder(mode, dec_emb_input, enc_seq_len, dec_seq_len, attention_states, fin
     return outputs
 
 def construct_graph(mode, placeholders, batch_size):
-    enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
+	enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
 
-    enc_emb_matrix = tf.get_variable("enc_embedding_matrix", [enc_features, embedding_dim])
-    dec_emb_matrix = tf.get_variable("dec_embedding_matrix", [dec_features, embedding_dim])
-    enc_emb_input = tf.nn.embedding_lookup(enc_emb_matrix, enc_input)
-    dec_emb_input = tf.nn.embedding_lookup(dec_emb_matrix, dec_input)
+	enc_emb_matrix = tf.get_variable("enc_embedding_matrix", [enc_features, embedding_dim])
+	dec_emb_matrix = tf.get_variable("dec_embedding_matrix", [dec_features, embedding_dim])
+	enc_emb_input = tf.nn.embedding_lookup(enc_emb_matrix, enc_input)
+	dec_emb_input = tf.nn.embedding_lookup(dec_emb_matrix, dec_input)
 
-    with tf.name_scope("Encoder"):
-        fw_cells = tf.nn.rnn_cell.MultiRNNCell([tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.BasicLSTMCell(latent_dim), output_keep_prob = 0.8) for i in range(num_layers)])
-        bw_cells = tf.nn.rnn_cell.MultiRNNCell([tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.BasicLSTMCell(latent_dim), output_keep_prob = 0.8) for i in range(num_layers)])
+	with tf.name_scope("Encoder"):
+		fw_cells = tf.nn.rnn_cell.MultiRNNCell([tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.BasicLSTMCell(latent_dim), output_keep_prob = 0.8) for i in range(num_layers)])
+		bw_cells = tf.nn.rnn_cell.MultiRNNCell([tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.BasicLSTMCell(latent_dim), output_keep_prob = 0.8) for i in range(num_layers)])
 
-        enc_outputs, enc_states = tf.nn.bidirectional_dynamic_rnn(fw_cells, bw_cells, enc_emb_input, sequence_length = enc_seq_len, time_major = False, dtype = tf.float32)
-        enc_outputs = tf.concat(enc_outputs, -1)
-        enc_c = tf.concat([enc_states[0][-1][0], enc_states[1][-1][0]], -1)
-        enc_h = tf.concat([enc_states[0][-1][1], enc_states[1][-1][1]], -1)
-        enc_states = tf.contrib.rnn.LSTMStateTuple(c = enc_c, h = enc_h)
+		enc_outputs, enc_states = tf.nn.bidirectional_dynamic_rnn(fw_cells, bw_cells, enc_emb_input, sequence_length = enc_seq_len, time_major = False, dtype = tf.float32)
+		enc_outputs = tf.concat(enc_outputs, -1)
+		enc_c = tf.concat([enc_states[0][-1][0], enc_states[1][-1][0]], -1)
+		enc_h = tf.concat([enc_states[0][-1][1], enc_states[1][-1][1]], -1)
+		enc_states = tf.contrib.rnn.LSTMStateTuple(c = enc_c, h = enc_h)
 
-    loss, optimizer = None, None
-    outputs = Decoder(mode, dec_emb_input, enc_seq_len, dec_seq_len, enc_outputs, enc_states, beam_width, batch_size, dec_emb_matrix)
+	loss, optimizer = None, None
+	outputs = Decoder(mode, dec_emb_input, enc_seq_len, dec_seq_len, enc_outputs, enc_states, beam_width, batch_size, dec_emb_matrix)
 
-    if mode == 'train':
-        outputs = outputs.rnn_output
+	if mode == 'train':
+		outputs = outputs.rnn_output
+		print(outputs)
+		loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels = dec_target, logits = outputs))
+		optimizer = tf.train.AdamOptimizer(learning_rate = 0.001).minimize(loss)
+	else:
+		outputs = tf.transpose(outputs.predicted_ids, [0,2,1], name = 'inf_output')
 
-        loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels = dec_target, logits = outputs))
-        optimizer = tf.train.AdamOptimizer(learning_rate = 0.001).minimize(loss)
-    else:
-        outputs = tf.transpose(outputs.predicted_ids, [0,2,1], name = 'inf_output')
-
-    return outputs, loss, optimizer
+	return outputs, loss, optimizer
 
 def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 	enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
@@ -172,6 +184,10 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 		for i in tqdm.tqdm(range(0,num_samples, batch_size)):
 			start, end = i, i+batch_size
 			epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
+			# print(dec_target)
+			# print(epoch_dec_target.shape)
+			# print(max(epoch_dec_seq_len))
+			# exit()
 			#epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
 			_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
 			    dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
@@ -218,10 +234,10 @@ with infer_graph.as_default():
 		if inp == "quit()":
 			break
 		nlp = spacy.load('en')
-		inp = process.tokenize(inp, nlp)
-		inp = [[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in inp]]
-		inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
+		inp = process.tokenize(inp, nlp, 'p')
+		inp = np.array([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in inp]]).reshape((1,-1))
+		# inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
 		input_seq = np.concatenate([inp, inp])
-		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([max_enc_time]*2)})[0][0]
+		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
 		print([" ".join([reply_i2w[idx] for idx in sentence]) for sentence in out])
 		print("\n\n\n")
