@@ -163,11 +163,6 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 		for i in tqdm.tqdm(range(0,num_samples, batch_size)):
 			start, end = i, i+batch_size
 			epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
-			# print(dec_target)
-			# print(epoch_dec_target.shape)
-			# print(max(epoch_dec_seq_len))
-			# exit()
-			#epoch_enc_seq_len, epoch_dec_seq_len = np.array([max_enc_time]*batch_size), np.array([max_dec_time]*batch_size)
 			_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
 			    dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
 			cost += c
@@ -216,7 +211,8 @@ with infer_graph.as_default():
 		inp = process.tokenize(inp, nlp, 'p')
 		inp = np.array([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in inp]]).reshape((1,-1))
 		# inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
-		input_seq = np.concatenate([inp, inp])
+		input_seq = np.concatenate([inp]*2)
 		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
-		print([" ".join([reply_i2w[idx] for idx in sentence if reply_i2w[idx] != "EOS"]) for sentence in out])
+		for reply in [" ".join([reply_i2w[idx] for idx in sentence if reply_i2w[idx] != "EOS"]) for sentence in out]:
+			print(reply)
 		print("\n\n\n")
