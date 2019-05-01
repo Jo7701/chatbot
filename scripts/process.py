@@ -6,6 +6,7 @@ def clean_url(comment):
             end_url = comment.find(")", http_index)
             if end_url == -1:
                 end_url = comment.find(' ', start_url)
+                if end_url == -1: end_url = len(comment)
             comment = comment[:start_url] + comment[end_url+1:]
 
             if start_url-1 >= 0 and comment[start_url-1] == ']':
@@ -21,6 +22,7 @@ def clean_url(comment):
         else:
             start_url = http_index
             end_url = comment.find(" ", start_url)
+            if end_url == -1: end_url = len(comment)
             comment = comment[:start_url] + comment[end_url:]
 
         http_index = comment.find("http")
