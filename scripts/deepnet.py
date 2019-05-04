@@ -82,6 +82,8 @@ num_layers = args.num_layers if args.num_layers else 1
 beam_width = args.beam_width if args.beam_width else 3
 
 print("Loading Data")
+if not os.path.exists('../new_parent.txt'):
+	clean_dataset()
 parent, reply = grab_data(num_samples)
 
 print("Creating frequency dictionaries")
