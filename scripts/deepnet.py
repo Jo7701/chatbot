@@ -10,13 +10,32 @@ from tensorflow.contrib.seq2seq.python.ops import beam_search_ops
 import process
 import spacy
 
+def clean_dataset():
+	parent = open('../processed_parent.txt', 'r').readlines()
+	reply = open('../processed_reply.txt', 'r').readlines()
+	reply = [comment for comment in reply if comment != '\n']
+	blacklist = []
+
+	for i in range(len(parent)):
+		if len(parent[i][:-1].split()) == 1 or len(reply[i][:-1].split()) == 1:
+			blacklist.append(i)
+	for i in blacklist[::-1]:
+		del(parent[i])
+		del(reply[i])
+	p = open('../new_parent.txt', 'w')
+	r = open('../new_reply.txt', 'w')
+	for i in range(len(parent)):
+		if parent[i][:-1].split()[0] == reply[i][:-1].split()[0]:
+			p.write(" ".join(parent[i].split()[1:]))
+			r.write(" ".join(reply[i].split()[1:]))
+
 def grab_data(num_samples):
 	parent, reply = [], []
-	for i,comment in enumerate(open('../processed_data/processed_parent.txt', 'r')):
+	for i,comment in enumerate(open('../new_parent.txt', 'r')):
 		if i == num_samples:
 			break
 		parent.append(comment[:-1].lower().split())
-	for i,comment in enumerate(open('../processed_data/processed_reply.txt', 'r')):
+	for i,comment in enumerate(open('../new_reply.txt', 'r')):
 		if i == num_samples:
 			break
 		reply.append(comment[:-1].lower().split())
@@ -33,13 +52,11 @@ def pad(vec, pad_token, size):
 
 def load_data(parent_data, reply_data, lower, upper):
 	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
-	enc_seq_len = [min(max_enc_time, len(comment)) for comment in parent]
-	dec_seq_len = [min(max_dec_time, len(comment)) for comment in reply]
-	max_enc_pad = max(enc_seq_len)
-	max_dec_pad = max(dec_seq_len)
-	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in comment[:max_enc_pad]] for comment in parent], parent_w2i["PAD"], max_enc_pad)
-	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment[:max_dec_pad-1]] for comment in reply], reply_w2i["PAD"], max_dec_pad)
-	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment[:max_dec_pad-1]]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_pad), dec_features)
+	enc_seq_len = [len(comment) for comment in parent]
+	dec_seq_len = [len(comment) for comment in reply]
+	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
+	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
+	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
 	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
@@ -79,7 +96,7 @@ parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_fea
 reply_vocab = ["PAD", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
 
 max_enc_time = 50
-max_dec_time = 50
+max_dec_time = 50+1 #for SOS and EOS token
 
 print("Creating mapping dictionaries")
 parent_w2i, reply_w2i = {word:i for i,word in enumerate(parent_vocab)}, {word:i for i,word in enumerate(reply_vocab)}
