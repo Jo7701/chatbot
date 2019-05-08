@@ -62,16 +62,17 @@ def load_data(parent_data, reply_data, lower, upper):
 	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
-	parser = argparse.ArgumentParser(description = "Reddit Chatbot")
-	parser.add_argument("-e", "--epochs", type = int)
-	parser.add_argument("-s", "--num_samples", type = int)
-	parser.add_argument("-l", "--latent_dim", type = int)
-	parser.add_argument("-d", "--embedding_dim", type = int)
-	parser.add_argument("--batch_size", type = int)
-	parser.add_argument("--num_layers", type = int)
-	parser.add_argument("--beam_width", type = int)
+        parser = argparse.ArgumentParser(description = "Reddit Chatbot")
+        parser.add_argument("-e", "--epochs", type = int)
+        parser.add_argument("-s", "--num_samples", type = int)
+        parser.add_argument("-l", "--latent_dim", type = int)
+        parser.add_argument("-d", "--embedding_dim", type = int)
+        parser.add_argument("--batch_size", type = int)
+        parser.add_argument("--num_layers", type = int)
+        parser.add_argument("--beam_width", type = int)
+        parser.add_argument("--vocab_size", type = int)
 
-	return parser.parse_args()
+        return parser.parse_args()
 
 args = get_args()
 
@@ -82,6 +83,7 @@ epochs = args.epochs if args.epochs else 100
 batch_size = args.batch_size if args.batch_size else 100
 num_layers = args.num_layers if args.num_layers else 1
 beam_width = args.beam_width if args.beam_width else 3
+vocab_size = args.vocab_size if args.vocab_size else 30000
 
 print("Loading Data")
 if not os.path.exists('../new_parent.txt'):
@@ -93,8 +95,8 @@ parent_freq_dict = Counter(word for comment in parent for word in comment)
 reply_freq_dict = Counter(word for comment in reply for word in comment)
 
 print("Creating vocabularies")
-enc_features = min(30000, len(parent_freq_dict))
-dec_features = min(30000, len(reply_freq_dict))
+enc_features = min(vocab_size, len(parent_freq_dict))
+dec_features = min(vocab_size, len(reply_freq_dict))
 
 parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_features-1)]
 reply_vocab = ["PAD", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
@@ -177,26 +179,24 @@ def construct_graph(mode, placeholders, batch_size):
 	return outputs, loss, optimizer
 
 def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
-	enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
-	for epoch in range(epochs):
-		i = 0
-		cost = 0
-		for i in tqdm.tqdm(range(0,num_samples, batch_size)):
-			start, end = i, i+batch_size
-			epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
-			# print(epoch_enc_input.shape, epoch_dec_input.shape, epoch_dec_target.shape)
-			# exit()
-			_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input,
-			    dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
-			cost += c
-		# if not epoch%10:
-		# 	if not os.path.exists('../beam_train'):
-		# 		os.makedirs("../beam_train")
-		# 	os.makedirs("../beam_train/model"+str(round(cost,2)))
-		# 	train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
-		print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
-	train_saver.save(train_sess, "beam_train/beam_model")
-	pickle.dump([parent_w2i, reply_w2i, max_enc_time], open("beam_infer/params.pickle", 'wb'))
+        enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
+        pickle.dump([parent_w2i, reply_w2i, max_enc_time], open('beam_infer/params.pickle', 'wb'))
+        for epoch in range(epochs):
+                i = 0
+                cost = 0
+                for i in tqdm.tqdm(range(0,num_samples, batch_size)):
+                        start, end = i, i+batch_size
+                        epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
+                        # print(epoch_enc_input.shape, epoch_dec_input.shape, epoch_dec_target.shape)
+                        # exit()
+                        _, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input, dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
+                        cost += c
+                if not epoch%100:
+                    if not os.path.exists('../beam_train'):
+                        os.makedirs("../beam_train")
+                    os.makedirs("../beam_train/model"+str(round(cost,2)))
+                    train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
+                print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
 
 tf.reset_default_graph()
 train_graph = tf.Graph()
