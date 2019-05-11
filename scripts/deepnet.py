@@ -11,8 +11,8 @@ import process
 import spacy
 
 def clean_dataset():
-	parent = open('../processed_parent.txt', 'r').readlines()
-	reply = open('../processed_reply.txt', 'r').readlines()
+	parent = open('../data/processed_parent.txt', 'r').readlines()
+	reply = open('../data/processed_reply.txt', 'r').readlines()
 	reply = [comment for comment in reply if comment != '\n']
 	blacklist = []
 
@@ -24,8 +24,8 @@ def clean_dataset():
 	for i in blacklist[::-1]:
 		del(parent[i])
 		del(reply[i])
-	p = open('../new_parent.txt', 'w')
-	r = open('../new_reply.txt', 'w')
+	p = open('../data/new_parent.txt', 'w')
+	r = open('../data/new_reply.txt', 'w')
 	for i in range(len(parent)):
 		if parent[i][:-1].split()[0] == reply[i][:-1].split()[0]:
 			p.write(" ".join(parent[i].split()[1:])+'\n')
@@ -33,11 +33,11 @@ def clean_dataset():
 
 def grab_data(num_samples):
 	parent, reply = [], []
-	for i,comment in enumerate(open('../new_parent.txt', 'r')):
+	for i,comment in enumerate(open('../data/new_parent.txt', 'r')):
 		if i == num_samples:
 			break
 		parent.append(comment[:-1].lower().split())
-	for i,comment in enumerate(open('../new_reply.txt', 'r')):
+	for i,comment in enumerate(open('../data/new_reply.txt', 'r')):
 		if i == num_samples:
 			break
 		reply.append(comment[:-1].lower().split())
@@ -55,10 +55,10 @@ def pad(vec, pad_token, size):
 def load_data(parent_data, reply_data, lower, upper):
 	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
 	enc_seq_len = [len(comment) for comment in parent]
-	dec_seq_len = [max_dec_time for comment in reply]
-	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
-	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
-	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["PAD"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max_dec_time), dec_features)
+	dec_seq_len = [len(comment)+1 for comment in reply]
+	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
+	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
+	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max(dec_seq_len)), dec_features)
 	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
@@ -86,7 +86,7 @@ beam_width = args.beam_width if args.beam_width else 3
 vocab_size = args.vocab_size if args.vocab_size else 30000
 
 print("Loading Data")
-if not os.path.exists('../new_parent.txt'):
+if not os.path.exists('../data/new_parent.txt'):
 	clean_dataset()
 parent, reply = grab_data(num_samples)
 
@@ -98,8 +98,8 @@ print("Creating vocabularies")
 enc_features = min(vocab_size, len(parent_freq_dict))
 dec_features = min(vocab_size, len(reply_freq_dict))
 
-parent_vocab = ["PAD"]+[word[0] for word in parent_freq_dict.most_common(enc_features-1)]
-reply_vocab = ["PAD", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-3)] + ["EOS"]
+parent_vocab = ["UNK"]+[word[0] for word in parent_freq_dict.most_common(enc_features-2)] + ["PAD"]
+reply_vocab = ["UNK", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-4)] + ["PAD", "EOS"]
 
 max_enc_time = 50
 max_dec_time = 50+1 #for SOS and EOS token
@@ -179,24 +179,24 @@ def construct_graph(mode, placeholders, batch_size):
 	return outputs, loss, optimizer
 
 def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
-        enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
-        pickle.dump([parent_w2i, reply_w2i, max_enc_time], open('beam_infer/params.pickle', 'wb'))
-        for epoch in range(epochs):
-                i = 0
-                cost = 0
-                for i in tqdm.tqdm(range(0,num_samples, batch_size)):
-                        start, end = i, i+batch_size
-                        epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
-                        # print(epoch_enc_input.shape, epoch_dec_input.shape, epoch_dec_target.shape)
-                        # exit()
-                        _, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input, dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
-                        cost += c
-                if not epoch%100:
-                    if not os.path.exists('../beam_train'):
-                        os.makedirs("../beam_train")
-                    os.makedirs("../beam_train/model"+str(round(cost,2)))
-                    train_saver.save(train_sess, "beam_train/model"+str(round(cost, 2))+"/beam_model")
-                print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
+	enc_input, dec_input, dec_target, enc_seq_len, dec_seq_len = placeholders
+	if not os.path.exists('../beam_infer'):
+		os.makedirs("../beam_infer")
+	pickle.dump([parent_w2i, reply_w2i, max_enc_time], open('../beam_infer/params.pickle', 'wb'))
+	for epoch in range(epochs):
+			i = 0
+			cost = 0
+			for i in tqdm.tqdm(range(0,num_samples, batch_size)):
+				start, end = i, i+batch_size
+				epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
+				_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input, dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
+				cost += c
+			if not epoch%100:
+				if not os.path.exists('../beam_train'):
+					os.makedirs("../beam_train")
+				os.makedirs("../beam_train/model"+str(round(cost,2)))
+				train_saver.save(train_sess, "../beam_train/model"+str(round(cost, 2))+"/beam_model")
+			print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
 
 tf.reset_default_graph()
 train_graph = tf.Graph()
@@ -217,10 +217,10 @@ train_sess = tf.Session(graph = train_graph)
 infer_sess = tf.Session(graph = infer_graph)
 
 train_sess.run(initializer)
-train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
+#train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
 
-infer_saver.restore(infer_sess, 'beam_train/beam_model')
-infer_saver.save(infer_sess, "beam_infer/beam_model")
+infer_saver.restore(infer_sess, '../beam_train/model2.2/beam_model')
+infer_saver.save(infer_sess, "../beam_infer/beam_model")
 
 with infer_graph.as_default():
 	while True:
@@ -232,7 +232,7 @@ with infer_graph.as_default():
 			break
 		nlp = spacy.load('en')
 		inp = process.tokenize(inp, nlp, 'p')
-		inp = np.array([[parent_w2i[word] if word in parent_w2i else parent_w2i["PAD"] for word in inp]]).reshape((1,-1))
+		inp = np.array([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in inp]]).reshape((1,-1))
 		# inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
 		input_seq = np.concatenate([inp]*2)
 		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
