@@ -56,9 +56,9 @@ def load_data(parent_data, reply_data, lower, upper):
 	parent, reply = parent_data[lower:upper], reply_data[lower:upper]
 	enc_seq_len = [len(comment) for comment in parent]
 	dec_seq_len = [len(comment)+1 for comment in reply]
-	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["PAD"], max_enc_time)
+	enc_input = pad([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in comment] for comment in parent], parent_w2i["SRC_EOS"], max_enc_time)
 	dec_input = pad([[reply_w2i["SOS"]]+[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment] for comment in reply], reply_w2i["PAD"], max_dec_time)
-	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["EOS"]] for comment in reply], reply_w2i["PAD"], max(dec_seq_len)), dec_features)
+	dec_target = one_hot(pad([[reply_w2i[word] if word in reply_w2i else reply_w2i["UNK"] for word in comment]+[reply_w2i["TGT_EOS"]] for comment in reply], reply_w2i["TGT_EOS"], max(dec_seq_len)), dec_features)
 	return enc_input, dec_input, dec_target, np.array(enc_seq_len), np.array(dec_seq_len)
 
 def get_args():
@@ -90,6 +90,11 @@ if not os.path.exists('../data/new_parent.txt'):
 	clean_dataset()
 parent, reply = grab_data(num_samples)
 
+for i,p in enumerate(parent):
+	print(p, "----------->", reply[i], '\n')
+	if i == 25:
+		break
+
 print("Creating frequency dictionaries")
 parent_freq_dict = Counter(word for comment in parent for word in comment)
 reply_freq_dict = Counter(word for comment in reply for word in comment)
@@ -98,11 +103,11 @@ print("Creating vocabularies")
 enc_features = min(vocab_size, len(parent_freq_dict))
 dec_features = min(vocab_size, len(reply_freq_dict))
 
-parent_vocab = ["UNK"]+[word[0] for word in parent_freq_dict.most_common(enc_features-2)] + ["PAD"]
-reply_vocab = ["UNK", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-4)] + ["PAD", "EOS"]
+parent_vocab = ["UNK"]+[word[0] for word in parent_freq_dict.most_common(enc_features-2)] + ["SRC_EOS"]
+reply_vocab = ["UNK", "SOS"]+[word[0] for word in reply_freq_dict.most_common(dec_features-4)] + ["PAD", "TGT_EOS"]
 
-max_enc_time = 50
-max_dec_time = 50+1 #for SOS and EOS token
+max_enc_time = 50 + 1
+max_dec_time = 50 + 1 #for SOS and EOS token
 
 print("Creating mapping dictionaries")
 parent_w2i, reply_w2i = {word:i for i,word in enumerate(parent_vocab)}, {word:i for i,word in enumerate(reply_vocab)}
@@ -126,7 +131,7 @@ def gen_attention_cell(mode, enc_seq_len, attention_states, init_dec_state, beam
 
     attention_mech = tf.contrib.seq2seq.LuongAttention(latent_dim*2, attention_states, memory_sequence_length = enc_seq_len, name = 'LuongAttention')
     decoder_lstm = tf.nn.rnn_cell.BasicLSTMCell(latent_dim*2, name = 'decoder_lstm')
-    attention_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_lstm, attention_mech, name = 'attention_cell')
+    attention_cell = tf.contrib.seq2seq.AttentionWrapper(decoder_lstm, attention_mech, attention_layer_size = latent_dim * 2, name = 'attention_cell')
 
     return attention_cell, attention_cell.zero_state(dtype = tf.float32, batch_size = batch_size).clone(cell_state = init_dec_state)
 
@@ -140,7 +145,7 @@ def Decoder(mode, dec_emb_input, enc_seq_len, dec_seq_len, attention_states, fin
             decoder = tf.contrib.seq2seq.BasicDecoder(attention_cell, helper, init_dec_state, projection_layer)
         else:
             start_tokens = tf.tile(np.array([reply_w2i["SOS"]], dtype = np.int32), [batch_size])
-            end_token = reply_w2i["EOS"]
+            end_token = reply_w2i["TGT_EOS"]
             decoder = tf.contrib.seq2seq.BeamSearchDecoder(attention_cell, dec_emb_matrix, start_tokens, end_token, init_dec_state, beam_width, projection_layer)
 
         outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(decoder, maximum_iterations = max_dec_time, scope = decoder_scope)
@@ -172,9 +177,9 @@ def construct_graph(mode, placeholders, batch_size):
 		outputs = outputs.rnn_output
 		print(outputs)
 		loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels = dec_target, logits = outputs))
-		optimizer = tf.train.AdamOptimizer(learning_rate = 0.001).minimize(loss)
+		optimizer = tf.train.AdamOptimizer(learning_rate = 0.0001).minimize(loss)
 	else:
-		outputs = tf.transpose(outputs.predicted_ids, [0,2,1], name = 'inf_output')
+		outputs = outputs.predicted_ids#tf.transpose(outputs.predicted_ids, [0,1,2], name = 'inf_output')
 
 	return outputs, loss, optimizer
 
@@ -189,13 +194,15 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 			for i in tqdm.tqdm(range(0,num_samples, batch_size)):
 				start, end = i, i+batch_size
 				epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
+
 				_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input, dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
 				cost += c
-			if not epoch%100:
-				if not os.path.exists('../beam_train'):
-					os.makedirs("../beam_train")
+			# if not (epoch+1)%10:
+			if not os.path.exists('../beam_train'):
+				os.makedirs("../beam_train")
+			if not os.path.exists("../beam_train/model"+str(round(cost,2))):
 				os.makedirs("../beam_train/model"+str(round(cost,2)))
-				train_saver.save(train_sess, "../beam_train/model"+str(round(cost, 2))+"/beam_model")
+			train_saver.save(train_sess, "../beam_train/model"+str(round(cost, 2))+"/beam_model")
 			print("Finished epoch", epoch+1, " Loss:", cost,"\n\n")
 
 tf.reset_default_graph()
@@ -217,9 +224,9 @@ train_sess = tf.Session(graph = train_graph)
 infer_sess = tf.Session(graph = infer_graph)
 
 train_sess.run(initializer)
-#train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
+# train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
 
-infer_saver.restore(infer_sess, '../beam_train/model2.2/beam_model')
+infer_saver.restore(infer_sess, '../beam_train/model244299.97/beam_model')
 infer_saver.save(infer_sess, "../beam_infer/beam_model")
 
 with infer_graph.as_default():
@@ -235,7 +242,14 @@ with infer_graph.as_default():
 		inp = np.array([[parent_w2i[word] if word in parent_w2i else parent_w2i["UNK"] for word in inp]]).reshape((1,-1))
 		# inp = pad(inp, parent_w2i["PAD"], max_enc_time).reshape((1,-1))
 		input_seq = np.concatenate([inp]*2)
+		# out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
 		out = infer_sess.run([infer_output], feed_dict = {enc_input: input_seq, enc_seq_len:np.array([len(inp[0])]*2)})[0][0]
-		for reply in [" ".join([reply_i2w[idx] for idx in sentence if reply_i2w[idx] != "EOS"]) for sentence in out]:
-			print(reply)
+
+		for reply_vec in np.transpose(out, (1,0)):
+			for word in reply_vec:
+				print(reply_i2w[word], " ", end = "")
+			print("\n")
+
+		# for reply in [" ".join([reply_i2w[idx] for idx in sentence if reply_i2w[idx] != "EOS"]) for sentence in out]:
+		# 	print(reply)
 		print("\n\n\n")
