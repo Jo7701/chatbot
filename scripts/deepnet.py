@@ -90,10 +90,8 @@ if not os.path.exists('../data/new_parent.txt'):
 	clean_dataset()
 parent, reply = grab_data(num_samples)
 
-for i,p in enumerate(parent):
-	print(p, "----------->", reply[i], '\n')
-	if i == 25:
-		break
+if num_samples == -1:
+    num_samples = len(parent)
 
 print("Creating frequency dictionaries")
 parent_freq_dict = Counter(word for comment in parent for word in comment)
@@ -224,7 +222,7 @@ train_sess = tf.Session(graph = train_graph)
 infer_sess = tf.Session(graph = infer_graph)
 
 train_sess.run(initializer)
-# train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
+train_model(train_sess, train_saver, train_placeholders, loss, optimizer, train_output)
 
 infer_saver.restore(infer_sess, '../beam_train/model244299.97/beam_model')
 infer_saver.save(infer_sess, "../beam_infer/beam_model")
