@@ -191,6 +191,8 @@ def train_model(train_sess, train_saver, placeholders, loss, optimizer, output):
 			cost = 0
 			for i in tqdm.tqdm(range(0,num_samples, batch_size)):
 				start, end = i, i+batch_size
+				if end > len(parent):
+					break
 				epoch_enc_input, epoch_dec_input, epoch_dec_target, epoch_enc_seq_len, epoch_dec_seq_len = load_data(parent, reply, start, end)
 
 				_, c = train_sess.run([optimizer, loss], feed_dict = {enc_input:epoch_enc_input, enc_seq_len: epoch_enc_seq_len, dec_input:epoch_dec_input, dec_seq_len:epoch_dec_seq_len, dec_target:epoch_dec_target})
